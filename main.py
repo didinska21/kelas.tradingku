@@ -41,12 +41,15 @@ def get_all_pairs(market_type='spot'):
         markets = exchange.load_markets()
         
         # Filter hanya pair dengan quote currency USDT dan yang aktif
-        usdt_pairs = [
-            symbol for symbol, market in markets.items()
-            if market['quote'] == 'USDT' 
-            and market['active']
-            and market['spot'] if market_type == 'spot' else market['swap']
-        ]
+        usdt_pairs = []
+        for symbol, market in markets.items():
+            if market['quote'] == 'USDT' and market['active']:
+                # Untuk spot, cek apakah market type adalah spot
+                if market_type == 'spot' and market.get('spot', False):
+                    usdt_pairs.append(symbol)
+                # Untuk futures, cek apakah market type adalah swap/future
+                elif market_type == 'futures' and (market.get('swap', False) or market.get('future', False)):
+                    usdt_pairs.append(symbol)
         
         # Sort alphabetically
         usdt_pairs.sort()
