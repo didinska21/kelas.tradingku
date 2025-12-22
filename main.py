@@ -264,25 +264,15 @@ Fokus pada EDUKASI, bukan rekomendasi trading!
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk command /start"""
     
-    # Inline keyboard untuk pilih Spot atau Futures
+    # Keyboard menu utama di bawah
     keyboard = [
-        [
-            InlineKeyboardButton("🔥 Top Gainers 24h", callback_data='category_gainers'),
-        ],
-        [
-            InlineKeyboardButton("📉 Top Losers 24h", callback_data='category_losers'),
-        ],
-        [
-            InlineKeyboardButton("💎 Top Volume 24h", callback_data='category_volume'),
-        ],
-        [
-            InlineKeyboardButton("📊 All Pairs", callback_data='category_all'),
-        ],
-        [
-            InlineKeyboardButton("🔄 Refresh Data", callback_data='refresh_data'),
-        ]
+        [KeyboardButton("🔥 Top Gainers 24h")],
+        [KeyboardButton("📉 Top Losers 24h")],
+        [KeyboardButton("💎 Top Volume 24h")],
+        [KeyboardButton("📊 All Pairs")],
+        [KeyboardButton("🔄 Refresh Data")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     welcome_message = """
 🚀 *PROFESSIONAL FUTURES TRADING BOT*
@@ -354,15 +344,12 @@ Scroll untuk lihat semua:
     )
 
 
-async def category_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk pilihan kategori"""
-    query = update.callback_query
-    await query.answer()
+async def handle_menu_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk menu utama"""
+    selected_menu = update.message.text
     
-    category = query.data.split('_')[1]
-    
-    if category == 'all':
-        # Tampilkan pilihan market
+    if selected_menu == "📊 All Pairs":
+        # Tampilkan pilihan market dengan inline keyboard
         keyboard = [
             [
                 InlineKeyboardButton("📊 SPOT", callback_data='market_spot'),
@@ -370,31 +357,60 @@ async def category_selection_handler(update: Update, context: ContextTypes.DEFAU
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
+        await update.message.reply_text(
             "📊 *Select Market Type:*",
             parse_mode='Markdown',
             reply_markup=reply_markup
         )
-    else:
-        await query.edit_message_text(
-            f"⏳ Fitur {category} sedang dalam pengembangan...\n"
-            f"Gunakan /start untuk kembali ke menu utama."
+    
+    elif selected_menu == "🔥 Top Gainers 24h":
+        await update.message.reply_text(
+            "⏳ Fitur Top Gainers sedang dalam pengembangan...\n"
+            "Gunakan 📊 All Pairs untuk melihat semua pair."
         )
-
-async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk tombol menu"""
-    if update.message.text == "≡ Menu":
+    
+    elif selected_menu == "📉 Top Losers 24h":
+        await update.message.reply_text(
+            "⏳ Fitur Top Losers sedang dalam pengembangan...\n"
+            "Gunakan 📊 All Pairs untuk melihat semua pair."
+        )
+    
+    elif selected_menu == "💎 Top Volume 24h":
+        await update.message.reply_text(
+            "⏳ Fitur Top Volume sedang dalam pengembangan...\n"
+            "Gunakan 📊 All Pairs untuk melihat semua pair."
+        )
+    
+    elif selected_menu == "🔄 Refresh Data":
+        await update.message.reply_text("🔄 Refreshing data...")
+        await start(update, context)
+    
+    elif selected_menu == "≡ Menu":
         await start(update, context)
 
+async def category_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk pilihan kategori dari inline button"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Tidak digunakan lagi karena sudah pakai keyboard
+    pass
+
 async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler ketika user pilih pair trading"""
+    """Handler ketika user pilih pair trading atau menu"""
     
-    selected_pair = update.message.text
+    selected_text = update.message.text
     
-    # Check jika user mau kembali ke menu
-    if selected_pair == "≡ Menu":
-        await handle_menu_button(update, context)
+    # Cek apakah ini menu button
+    menu_buttons = ["🔥 Top Gainers 24h", "📉 Top Losers 24h", "💎 Top Volume 24h", 
+                    "📊 All Pairs", "🔄 Refresh Data", "≡ Menu"]
+    
+    if selected_text in menu_buttons:
+        await handle_menu_selection(update, context)
         return
+    
+    # Kalau bukan menu, berarti pilih pair
+    selected_pair = selected_text
     
     # Validasi format pair
     if '/USDT' not in selected_pair:
@@ -548,8 +564,6 @@ def main():
     # Tambahkan handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(market_selection_handler, pattern='^market_'))
-    application.add_handler(CallbackQueryHandler(category_selection_handler, pattern='^category_'))
-    application.add_handler(CallbackQueryHandler(category_selection_handler, pattern='^refresh_'))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pair_selection))
     
     # Jalankan bot
