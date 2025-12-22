@@ -267,35 +267,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Inline keyboard untuk pilih Spot atau Futures
     keyboard = [
         [
-            InlineKeyboardButton("📊 SPOT Trading", callback_data='market_spot'),
-            InlineKeyboardButton("🚀 FUTURES Trading", callback_data='market_futures')
+            InlineKeyboardButton("🔥 Top Gainers 24h", callback_data='category_gainers'),
+        ],
+        [
+            InlineKeyboardButton("📉 Top Losers 24h", callback_data='category_losers'),
+        ],
+        [
+            InlineKeyboardButton("💎 Top Volume 24h", callback_data='category_volume'),
+        ],
+        [
+            InlineKeyboardButton("📊 All Pairs", callback_data='category_all'),
+        ],
+        [
+            InlineKeyboardButton("🔄 Refresh Data", callback_data='refresh_data'),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     welcome_message = """
-🤖 *Selamat Datang di Bot Belajar Trading!*
+🚀 *PROFESSIONAL FUTURES TRADING BOT*
 
-Bot ini akan membantu kamu belajar analisa trading dengan cara yang SANGAT MUDAH dipahami! 🚀
+📊 *Multi-Timeframe Analysis System*
+🎯 Professional Risk Management
+💼 Institutional-Grade Signals
 
-📚 *Yang Akan Kamu Pelajari:*
-✅ Cara baca chart dengan benar
-✅ Apa itu Support & Resistance
-✅ Cara pakai Moving Average
-✅ Cara lihat trend naik/turun
-✅ Indikator RSI untuk momentum
+📈 *Market Overview:*
+🔥 Top Gainers: 15 pairs
+📉 Top Losers: 15 pairs  
+💎 High Volume: 15 pairs
+📊 Total Pairs: 534
 
-📊 *Fitur Bot:*
-✅ Data real-time dari Binance
-✅ Chart visual dengan garis-garis penting
-✅ Penjelasan AI yang mudah dipahami
-✅ Support Spot & Futures trading
-
-⚠️ *PENTING:* 
-Bot ini untuk BELAJAR saja, bukan untuk rekomendasi trading!
-Selalu DYOR (Do Your Own Research) sebelum trading!
-
-*Pilih jenis market yang mau kamu pelajari:* 👇
+*Select Category:*
 """
     
     await update.message.reply_text(
@@ -320,111 +322,94 @@ async def market_selection_handler(update: Update, context: ContextTypes.DEFAULT
     # Ambil SEMUA pairs dari Binance
     pairs = get_all_pairs(market_type)
     
-    # Buat keyboard dengan pair trading (4 kolom untuk efisiensi)
+    # Buat keyboard dengan pair trading (2 kolom untuk tampilan lebih rapi)
     keyboard = []
     row = []
     for i, pair in enumerate(pairs):
-        # Tampilkan hanya base currency untuk menghemat space
-        button_text = pair.split('/')[0]  # Contoh: BTC/USDT -> BTC
         row.append(KeyboardButton(pair))
-        if (i + 1) % 4 == 0:  # 4 kolom
+        if (i + 1) % 2 == 0:  # 2 kolom
             keyboard.append(row)
             row = []
     if row:  # Tambahkan sisa
         keyboard.append(row)
     
-    # Tambah tombol kembali dan search
-    keyboard.append([KeyboardButton("🔍 Cari Pair"), KeyboardButton("🔙 Ganti Market")])
+    # Tambah tombol menu
+    keyboard.append([KeyboardButton("≡ Menu")])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     market_label = "SPOT" if market_type == 'spot' else "FUTURES"
     
     message = f"""
-📊 *Market: {market_label} Trading*
+📊 *ALL {market_label.upper()} PAIRS*
 
-✅ Berhasil memuat *{len(pairs)} pairs* dari Binance!
-
-Scroll keyboard di bawah untuk lihat semua pair 👇
-
-💡 *Tips:*
-• Gunakan tombol 🔍 Cari Pair untuk cari pair tertentu
-• Semua pair adalah pasangan dengan USDT
-
-Klik pair untuk mulai analisa! 🚀
+Total: *{len(pairs)} pairs*
+Scroll untuk lihat semua:
 """
     
     await query.edit_message_text(message, parse_mode='Markdown')
     await loading_message.edit_text(
-        f"✅ {len(pairs)} {market_label} pairs tersedia!\nSilakan pilih dari keyboard:",
+        f"✅ {len(pairs)} {market_label} pairs tersedia!",
         reply_markup=reply_markup
     )
 
+
+async def category_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk pilihan kategori"""
+    query = update.callback_query
+    await query.answer()
+    
+    category = query.data.split('_')[1]
+    
+    if category == 'all':
+        # Tampilkan pilihan market
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 SPOT", callback_data='market_spot'),
+                InlineKeyboardButton("🚀 FUTURES", callback_data='market_futures')
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "📊 *Select Market Type:*",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+    else:
+        await query.edit_message_text(
+            f"⏳ Fitur {category} sedang dalam pengembangan...\n"
+            f"Gunakan /start untuk kembali ke menu utama."
+        )
+
+async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk tombol menu"""
+    if update.message.text == "≡ Menu":
+        await start(update, context)
 
 async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler ketika user pilih pair trading"""
     
     selected_pair = update.message.text
     
-    # Check jika user mau ganti market
-    if selected_pair == "🔙 Ganti Market":
-        await start(update, context)
+    # Check jika user mau kembali ke menu
+    if selected_pair == "≡ Menu":
+        await handle_menu_button(update, context)
         return
-    
-    # Check jika user mau search
-    if selected_pair == "🔍 Cari Pair":
-        await update.message.reply_text(
-            "🔍 *Cara Cari Pair:*\n\n"
-            "Ketik nama coin yang kamu cari, contoh:\n"
-            "• BTC\n"
-            "• ETH\n"
-            "• DOGE\n\n"
-            "Bot akan carikan pair yang cocok! 🚀",
-            parse_mode='Markdown'
-        )
-        context.user_data['searching'] = True
-        return
-    
-    # Ambil market type dari context
-    market_type = context.user_data.get('market_type', 'spot')
-    
-    # Jika sedang dalam mode search
-    if context.user_data.get('searching', False):
-        context.user_data['searching'] = False
-        pairs = get_all_pairs(market_type)
-        
-        # Cari pair yang match
-        search_term = selected_pair.upper().replace('/USDT', '')
-        matched_pairs = [p for p in pairs if search_term in p]
-        
-        if not matched_pairs:
-            await update.message.reply_text(
-                f"❌ Tidak ada pair dengan nama '{selected_pair}'\n"
-                f"Coba kata kunci lain atau pilih dari keyboard! 👇"
-            )
-            return
-        elif len(matched_pairs) == 1:
-            selected_pair = matched_pairs[0]
-        else:
-            # Tampilkan pilihan
-            result = f"🔍 Ditemukan {len(matched_pairs)} pair:\n\n"
-            for p in matched_pairs[:10]:  # Max 10
-                result += f"• {p}\n"
-            result += "\nKlik salah satu dari keyboard! 👇"
-            await update.message.reply_text(result)
-            return
     
     # Validasi format pair
     if '/USDT' not in selected_pair:
         return
+    
+    # Ambil market type dari context
+    market_type = context.user_data.get('market_type', 'futures')
     
     # Validasi pair berdasarkan market
     valid_pairs = get_all_pairs(market_type)
     
     if selected_pair not in valid_pairs:
         await update.message.reply_text(
-            f"❌ Pair *{selected_pair}* tidak tersedia di market ini.\n"
-            f"Gunakan 🔍 Cari Pair atau pilih dari keyboard! 👇",
+            f"❌ Pair *{selected_pair}* tidak tersedia.\n"
+            f"Pilih dari keyboard! 👇",
             parse_mode='Markdown'
         )
         return
@@ -432,8 +417,8 @@ async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TY
     # Kirim loading message
     market_label = "SPOT" if market_type == 'spot' else "FUTURES"
     loading_msg = await update.message.reply_text(
-        f"⏳ Sedang menganalisa {selected_pair} ({market_label})...\n"
-        f"Mohon tunggu 10-15 detik ya! 🔍📊"
+        f"⏳ Menganalisa {selected_pair} ({market_label})...\n"
+        f"Tunggu sebentar ya! 🔍"
     )
     
     try:
@@ -563,6 +548,8 @@ def main():
     # Tambahkan handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(market_selection_handler, pattern='^market_'))
+    application.add_handler(CallbackQueryHandler(category_selection_handler, pattern='^category_'))
+    application.add_handler(CallbackQueryHandler(category_selection_handler, pattern='^refresh_'))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pair_selection))
     
     # Jalankan bot
