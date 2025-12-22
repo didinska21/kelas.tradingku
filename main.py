@@ -6,7 +6,7 @@ import matplotlib.dates as mdates
 from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-import requests
+from groq import Groq
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -17,6 +17,9 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
 BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY')
+
+# Inisialisasi Groq Client
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 # Inisialisasi Exchange Binance
 exchange_spot = ccxt.binance({
@@ -231,33 +234,31 @@ Fokus pada EDUKASI, bukan rekomendasi trading!
 """
 
     try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": "Kamu adalah mentor trading yang sangat sabar dan jelas untuk pemula. Fokus pada edukasi, bukan rekomendasi trading."},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.8,
-                "max_tokens": 2000
-            },
-            timeout=30
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Kamu adalah mentor trading yang sangat sabar dan jelas untuk pemula. Fokus pada edukasi, bukan rekomendasi trading."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.8,
+            max_completion_tokens=2000,
+            top_p=1,
+            stream=False,
+            stop=None
         )
         
-        if response.status_code == 200:
-            result = response.json()
-            return result['choices'][0]['message']['content']
-        else:
-            return "Maaf, AI sedang sibuk. Coba lagi nanti ya! 😊"
+        # Ambil response dari completion
+        return completion.choices[0].message.content
             
     except Exception as e:
         print(f"Error with Groq API: {e}")
-        return "Maaf, terjadi error saat analisa. Coba lagi ya! 😊"
+        return "Maaf, terjadi error saat analisa AI. Coba lagi ya! 😊"
 
 # ========== HANDLER TELEGRAM ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
