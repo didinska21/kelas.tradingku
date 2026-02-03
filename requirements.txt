@@ -1,0 +1,7 @@
+ccxt
+numpy
+matplotlib
+python-telegram-bot
+groq
+python-dotenv
+requests
