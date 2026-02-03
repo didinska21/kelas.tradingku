@@ -19,7 +19,7 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
 BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY')
-CRYPTOPANIC_API_KEY = os.getenv('CRYPTOPANIC_API_KEY')
+# CRYPTOPANIC_API_KEY tidak dipakai lagi, sekarang pakai CoinGecko (gratis)
 
 # Inisialisasi Groq Client
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -92,90 +92,145 @@ def get_ohlcv_data(symbol, market_type='spot', timeframe='5m', limit=100):
         print(f"Error fetching OHLCV [{timeframe}]: {e}")
         return None
 
-# ========== FUNGSI AMBIL NEWS DARI CRYPTOPANIC ==========
+# ========== FUNGSI AMBIL NEWS DARI COINGECKO ==========
 def get_crypto_news(symbol):
-    """Ambil news dari CryptoPanic berdasarkan symbol"""
+    """
+    Ambil news dari CoinGecko - Gratis tanpa API key!
+    Menggunakan: trending coins + global market data
+    """
     try:
-        # Ubah format symbol: BTC/USDT -> btc
         coin = symbol.split('/')[0].lower()
-
-        url = "https://api.cryptopanic.com/v1/posts/"
-        params = {
-            'auth_token': CRYPTOPANIC_API_KEY,
-            'currencies': coin.upper(),
-            'kind': 'news',
-            'limit': 5
-        }
-        response = requests.get(url, params=params, timeout=5)
         
-        # Cek status response
-        if response.status_code != 200:
-            print(f"⚠️ CryptoPanic API error: Status {response.status_code}")
-            return []
-            
-        data = response.json()
-
+        # 1. Get trending coins
+        trending_url = "https://api.coingecko.com/api/v3/search/trending"
+        response = requests.get(trending_url, timeout=5)
+        
         news_list = []
-        if 'results' in data:
-            for item in data['results'][:5]:
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Cari coin yang diminta di trending
+            if 'coins' in data:
+                for item in data['coins'][:10]:
+                    coin_data = item.get('item', {})
+                    symbol_match = coin_data.get('symbol', '').lower()
+                    name_match = coin_data.get('name', '').lower()
+                    
+                    # Jika coin match dengan yang dicari
+                    if coin in symbol_match or coin in name_match:
+                        rank = coin_data.get('market_cap_rank', 'N/A')
+                        score = coin_data.get('score', 0)
+                        
+                        # Determine sentiment berdasarkan trending score
+                        if score >= 5:
+                            sentiment = 'bullish'
+                        elif score >= 3:
+                            sentiment = 'neutral'
+                        else:
+                            sentiment = 'bearish'
+                        
+                        news_list.append({
+                            'title': f"{coin_data.get('name')} is trending on CoinGecko (Score: {score})",
+                            'sentiment': sentiment,
+                            'source': 'CoinGecko Trending',
+                            'rank': rank
+                        })
+                
+                # Jika coin tidak trending, ambil data umum trending
+                if not news_list:
+                    # Ambil top 3 trending untuk konteks market
+                    for idx, item in enumerate(data['coins'][:3], 1):
+                        coin_data = item.get('item', {})
+                        news_list.append({
+                            'title': f"#{idx} Trending: {coin_data.get('name')} ({coin_data.get('symbol')})",
+                            'sentiment': 'neutral',
+                            'source': 'CoinGecko Trending'
+                        })
+        
+        # 2. Get global market data untuk context
+        try:
+            global_url = "https://api.coingecko.com/api/v3/global"
+            global_response = requests.get(global_url, timeout=5)
+            
+            if global_response.status_code == 200:
+                global_data = global_response.json().get('data', {})
+                
+                # Market cap change
+                market_cap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
+                btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 0)
+                
+                # Sentiment berdasarkan market cap change
+                if market_cap_change > 2:
+                    market_sentiment = 'bullish'
+                    market_emoji = '📈'
+                elif market_cap_change < -2:
+                    market_sentiment = 'bearish'
+                    market_emoji = '📉'
+                else:
+                    market_sentiment = 'neutral'
+                    market_emoji = '➡️'
+                
                 news_list.append({
-                    'title': item.get('title', 'N/A'),
-                    'url': item.get('url', ''),
-                    'published_at': item.get('published_at', ''),
-                    'votes': item.get('votes', {})
+                    'title': f"{market_emoji} Global Market Cap 24h: {market_cap_change:+.2f}% | BTC Dominance: {btc_dominance:.1f}%",
+                    'sentiment': market_sentiment,
+                    'source': 'CoinGecko Global'
                 })
-        return news_list
-
+        except:
+            pass
+        
+        print(f"✅ CoinGecko: {len(news_list)} news items")
+        return news_list[:5]  # Limit 5 items
+        
     except requests.exceptions.RequestException as e:
-        # Error koneksi (timeout, DNS, connection error, dll)
-        print(f"⚠️ CryptoPanic API tidak dapat diakses: {type(e).__name__}")
+        print(f"⚠️ CoinGecko API tidak dapat diakses: {type(e).__name__}")
         return []
     except Exception as e:
-        print(f"⚠️ Error fetching news: {e}")
+        print(f"⚠️ Error fetching CoinGecko news: {e}")
         return []
 
 def format_news_for_prompt(news_list):
-    """Format news untuk dikirim ke AI prompt"""
+    """Format news untuk AI prompt"""
     if not news_list:
-        return "⚠️ News API tidak tersedia saat ini. Fokus pada analisa teknikal saja."
-
+        return "⚠️ News tidak tersedia saat ini. Fokus pada analisa teknikal saja."
+    
     formatted = ""
     for i, news in enumerate(news_list, 1):
-        # Hitung sentiment dari votes
-        votes = news.get('votes', {})
-        positive = votes.get('positive', 0)
-        negative = votes.get('negative', 0)
-        if positive > negative:
-            sentiment = "BULLISH ✅"
-        elif negative > positive:
-            sentiment = "BEARISH ⚠️"
+        sentiment = news.get('sentiment', 'neutral')
+        
+        if sentiment == 'bullish':
+            emoji = "BULLISH ✅"
+        elif sentiment == 'bearish':
+            emoji = "BEARISH ⚠️"
         else:
-            sentiment = "NETRAL ➡️"
-
-        formatted += f"{i}. [{sentiment}] {news['title']}\n"
-
+            emoji = "NETRAL ➡️"
+        
+        title = news.get('title', 'No title')
+        formatted += f"{i}. [{emoji}] {title}\n"
+    
     return formatted
 
 def format_news_for_telegram(news_list):
-    """Format news untuk ditampilkan di Telegram"""
+    """Format news untuk Telegram"""
     if not news_list:
-        return "📰 *NEWS:*\n⚠️ News API tidak tersedia saat ini.\nAnalisa fokus pada teknikal."
-
-    msg = "📰 *NEWS TERBARU:*\n"
+        return "📰 *NEWS:*\n⚠️ News tidak tersedia saat ini.\nAnalisa fokus pada teknikal."
+    
+    msg = "📰 *MARKET NEWS (CoinGecko):*\n"
     for i, news in enumerate(news_list, 1):
-        votes = news.get('votes', {})
-        positive = votes.get('positive', 0)
-        negative = votes.get('negative', 0)
-        if positive > negative:
-            sentiment = "🟢 Bullish"
-        elif negative > positive:
-            sentiment = "🔴 Bearish"
+        sentiment = news.get('sentiment', 'neutral')
+        
+        if sentiment == 'bullish':
+            emoji = "🟢 Bullish"
+        elif sentiment == 'bearish':
+            emoji = "🔴 Bearish"
         else:
-            sentiment = "🟡 Netral"
-
-        msg += f"\n{i}. {sentiment}\n"
-        msg += f"   {news['title']}\n"
-
+            emoji = "🟡 Netral"
+        
+        title = news.get('title', 'No title')
+        
+        msg += f"\n{i}. {emoji}\n"
+        msg += f"   {title}\n"
+    
     return msg
 
 # ========== FUNGSI HITUNG INDIKATOR TEKNIKAL ==========
@@ -993,14 +1048,14 @@ def main():
     """Jalankan bot"""
 
     # Validasi SEMUA environment variables
-    if not all([TELEGRAM_TOKEN, GROQ_API_KEY, BINANCE_API_KEY, BINANCE_SECRET_KEY, CRYPTOPANIC_API_KEY]):
+    if not all([TELEGRAM_TOKEN, GROQ_API_KEY, BINANCE_API_KEY, BINANCE_SECRET_KEY]):
         print("❌ Error: Ada variabel .env yang kosong!")
         print("Pastikan .env berisi:")
         print("  TELEGRAM_BOT_TOKEN=...")
         print("  GROQ_API_KEY=...")
         print("  BINANCE_API_KEY=...")
         print("  BINANCE_SECRET_KEY=...")
-        print("  CRYPTOPANIC_API_KEY=...")
+        print("\n💡 CRYPTOPANIC_API_KEY tidak diperlukan lagi (pakai CoinGecko gratis)")
         return
 
     application = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -1014,7 +1069,7 @@ def main():
     print("🤖 Scalping Bot sudah jalan!")
     print("📊 Dual Timeframe: 15m + 5m")
     print("📐 Fibonacci + BB + MACD + RSI")
-    print("📰 News: CryptoPanic")
+    print("📰 News: CoinGecko (Free API)")
     print("🤖 AI: Groq (Llama 3.3)")
     print("💡 Tekan Ctrl+C untuk stop.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
