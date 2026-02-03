@@ -542,7 +542,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [KeyboardButton("🔥 Top Gainers 24h"), KeyboardButton("📉 Top Losers 24h")],
         [KeyboardButton("💎 Top Volume 24h")],
-        [KeyboardButton("📊 All Pairs")],
+        [KeyboardButton("📊 All Pairs"), KeyboardButton("✏️ Ketik Pair")],
         [KeyboardButton("🔄 Refresh Data")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -639,6 +639,31 @@ async def handle_menu_selection(update: Update, context: ContextTypes.DEFAULT_TY
         msg = format_ticker_list(volumes, "💎 TOP VOLUME 24H")
         await loading.edit_text(msg, parse_mode='Markdown')
 
+    elif selected_menu == "✏️ Ketik Pair":
+        context.user_data['waiting_pair'] = True
+        # Pilih market dulu kalau belum
+        if 'market_type' not in context.user_data:
+            keyboard = [[
+                InlineKeyboardButton("📊 SPOT", callback_data='market_spot'),
+                InlineKeyboardButton("🚀 FUTURES", callback_data='market_futures')
+            ]]
+            await update.message.reply_text(
+                "📊 *Pilih Market dulu:*",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            market_label = "SPOT" if context.user_data['market_type'] == 'spot' else "FUTURES"
+            await update.message.reply_text(
+                f"✏️ *Ketik nama pair* ({market_label})\n\n"
+                f"Contoh ketikan:\n"
+                f"• `btc` → BTC/USDT\n"
+                f"• `eth` → ETH/USDT\n"
+                f"• `BTC/USDT` → BTC/USDT\n\n"
+                f"Atau ketik /cancel untuk batal.",
+                parse_mode='Markdown'
+            )
+
     elif selected_menu == "🔄 Refresh Data":
         # Reset cache
         PAIR_CACHE['last_update'] = None
@@ -655,26 +680,48 @@ async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TY
     # Cek menu
     menu_buttons = [
         "🔥 Top Gainers 24h", "📉 Top Losers 24h", "💎 Top Volume 24h",
-        "📊 All Pairs", "🔄 Refresh Data", "≡ Menu"
+        "📊 All Pairs", "✏️ Ketik Pair", "🔄 Refresh Data", "≡ Menu"
     ]
     if selected_text in menu_buttons:
         await handle_menu_selection(update, context)
         return
 
-    # Validasi format pair
-    if '/USDT' not in selected_text:
+    # ----- /cancel handler -----
+    if selected_text.strip().lower() == '/cancel':
+        context.user_data.pop('waiting_pair', None)
+        await update.message.reply_text("❌ Dibatalkan.")
+        await start(update, context)
         return
 
-    selected_pair = selected_text
+    # ----- Auto-format manual input -----
+    # Kalau user ketik "btc", "BTC", "btc/usdt", "BTC/USDT" dll → normalize
+    typed = selected_text.strip()
+    if '/USDT' not in typed.upper():
+        # Tambahkan /USDT otomatis
+        typed = typed.upper() + '/USDT'
+    else:
+        typed = typed.upper()
+
+    selected_pair = typed
     market_type   = context.user_data.get('market_type', 'futures')
+
+    # Kalau dari mode "waiting_pair", reset state-nya
+    if context.user_data.get('waiting_pair'):
+        context.user_data.pop('waiting_pair', None)
 
     # Validasi pair dari cache
     valid_pairs = get_all_pairs(market_type)
     if selected_pair not in valid_pairs:
-        await update.message.reply_text(
-            f"❌ Pair *{selected_pair}* tidak tersedia.\nPilih dari keyboard! 👇",
-            parse_mode='Markdown'
-        )
+        # Coba cari pair yang mirip (partial match)
+        suggestions = [p for p in valid_pairs if selected_pair.split('/')[0] in p][:5]
+        msg = f"❌ Pair *{selected_pair}* tidak ditemukan.\n\n"
+        if suggestions:
+            msg += "🔍 *Mungkin maksud:*\n"
+            for s in suggestions:
+                msg += f"• {s}\n"
+        else:
+            msg += "Coba ketik ulang nama pair yang benar."
+        await update.message.reply_text(msg, parse_mode='Markdown')
         return
 
     # ----- Cooldown per user -----
@@ -805,6 +852,13 @@ async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TY
         if chart_path and os.path.exists(chart_path):
             os.remove(chart_path)
 
+# ========== CANCEL HANDLER ==========
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk /cancel"""
+    context.user_data.pop('waiting_pair', None)
+    await update.message.reply_text("❌ Dibatalkan.")
+    await start(update, context)
+
 # ========== MAIN ==========
 def main():
     """Jalankan bot"""
@@ -824,6 +878,7 @@ def main():
 
     # Handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CallbackQueryHandler(market_selection_handler, pattern='^market_'))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pair_selection))
 
