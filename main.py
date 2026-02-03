@@ -106,7 +106,13 @@ def get_crypto_news(symbol):
             'kind': 'news',
             'limit': 5
         }
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=5)
+        
+        # Cek status response
+        if response.status_code != 200:
+            print(f"⚠️ CryptoPanic API error: Status {response.status_code}")
+            return []
+            
         data = response.json()
 
         news_list = []
@@ -120,14 +126,18 @@ def get_crypto_news(symbol):
                 })
         return news_list
 
+    except requests.exceptions.RequestException as e:
+        # Error koneksi (timeout, DNS, connection error, dll)
+        print(f"⚠️ CryptoPanic API tidak dapat diakses: {type(e).__name__}")
+        return []
     except Exception as e:
-        print(f"Error fetching news: {e}")
+        print(f"⚠️ Error fetching news: {e}")
         return []
 
 def format_news_for_prompt(news_list):
     """Format news untuk dikirim ke AI prompt"""
     if not news_list:
-        return "Tidak ada news terbaru yang ditemukan."
+        return "⚠️ News API tidak tersedia saat ini. Fokus pada analisa teknikal saja."
 
     formatted = ""
     for i, news in enumerate(news_list, 1):
@@ -149,7 +159,7 @@ def format_news_for_prompt(news_list):
 def format_news_for_telegram(news_list):
     """Format news untuk ditampilkan di Telegram"""
     if not news_list:
-        return "📰 Tidak ada news terbaru untuk coin ini."
+        return "📰 *NEWS:*\n⚠️ News API tidak tersedia saat ini.\nAnalisa fokus pada teknikal."
 
     msg = "📰 *NEWS TERBARU:*\n"
     for i, news in enumerate(news_list, 1):
