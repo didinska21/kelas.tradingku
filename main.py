@@ -439,15 +439,33 @@ Berikan analisa SCALPING yang LENGKAP dalam format berikut:
    - Jelaskan alasannya berdasarkan semua data di atas.
 
 5. 💰 ENTRY / EXIT PLAN
-   - Entry Price: (angka spesifik)
-   - Take Profit 1: (level Fib extension atau resistance)
-   - Take Profit 2: (level Fib extension lebih tinggi)
-   - Stop Loss: (level Fib atau support)
-   - Risk/Reward ratio berapa?
+   Format seperti ini (gunakan emoji dan spasi yang jelas):
+   
+   🎯 *ENTRY POINT*
+   ├─ Price: $XX.XXXX
+   ├─ Kondisi: [jelaskan kondisi entry]
+   └─ Timeframe: 5m
+   
+   🟢 *TAKE PROFIT*
+   ├─ TP1: $XX.XXXX (Fib X.XXX atau resistance)
+   ├─ TP2: $XX.XXXX (Fib X.XXX atau extension)
+   └─ TP3: $XX.XXXX (target maksimal)
+   
+   🔴 *STOP LOSS*
+   └─ SL: $XX.XXXX (di bawah/atas Fib/Support)
+   
+   📊 *RISK/REWARD*
+   └─ Ratio: 1:X (dijelaskan perhitungannya)
 
 6. ⚠️ RISIKO
    - Apa risiko utama dari trade ini?
    - Kondisi apa yang harus diwaspadai?
+
+PENTING: 
+- Untuk bagian ENTRY/EXIT PLAN, gunakan format TREE (├─ dan └─) seperti contoh di atas
+- Gunakan *bold* untuk judul setiap bagian (ENTRY POINT, TAKE PROFIT, dll)
+- Berikan angka SPESIFIK untuk setiap price level
+- Jelaskan MENGAPA level tersebut dipilih (Fib berapa, support/resistance, dll)
 
 Gunakan bahasa Indonesia yang JELAS dan TO THE POINT.
 Jawab dengan SANGAT SPESIFIK, jangan asal-asalan angka.
@@ -524,8 +542,23 @@ async def get_top_volume(market_type='spot', top_n=15):
         print(f"Error top volume: {e}")
         return []
 
+def format_ticker_list_keyboard(ticker_list, prefix):
+    """Buat inline keyboard dari ticker list untuk langsung analisa"""
+    if not ticker_list:
+        return None
+    
+    keyboard = []
+    for i, (symbol, data) in enumerate(ticker_list[:15], 1):
+        pct = data.get('percentage', 0) or 0
+        price = data.get('last', 0) or 0
+        emoji = "🟢" if pct >= 0 else "🔴"
+        button_text = f"{emoji} {symbol.split('/')[0]} {pct:+.1f}%"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f'analyze_{symbol}')])
+    
+    return InlineKeyboardMarkup(keyboard)
+
 def format_ticker_list(ticker_list, label):
-    """Format list ticker untuk Telegram"""
+    """Format list ticker untuk Telegram (text only)"""
     if not ticker_list:
         return f"⚠️ Gagal mengambil data {label}."
     msg = f"*{label}*\n━━━━━━━━━━━━━━━━━━\n"
@@ -534,6 +567,7 @@ def format_ticker_list(ticker_list, label):
         price = data.get('last', 0) or 0
         emoji = "🟢" if pct >= 0 else "🔴"
         msg += f"{i:2d}. {emoji} *{symbol}* — ${price:.4f} ({pct:+.2f}%)\n"
+    msg += f"\n💡 *Klik coin di bawah untuk analisa langsung!*"
     return msg
 
 # ========== HANDLER TELEGRAM ==========
@@ -567,10 +601,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def market_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler pilihan Spot atau Futures"""
+    """Handler pilihan Spot atau Futures dan analyze callback"""
     query = update.callback_query
     await query.answer()
 
+    # Handle analyze_ callback (dari inline keyboard top gainers/losers/volume)
+    if query.data.startswith('analyze_'):
+        selected_pair = query.data.replace('analyze_', '')
+        market_type = context.user_data.get('market_type', 'futures')
+        
+        # Proses analisa langsung (copy logic dari handle_pair_selection)
+        await process_pair_analysis(query, context, selected_pair, market_type, from_inline=True)
+        return
+
+    # Handle market selection (spot/futures)
     market_type = query.data.split('_')[1]
     context.user_data['market_type'] = market_type
 
@@ -625,19 +669,25 @@ async def handle_menu_selection(update: Update, context: ContextTypes.DEFAULT_TY
         loading = await update.message.reply_text("⏳ Mengambil Top Gainers...")
         gainers = await get_top_gainers(market_type)
         msg = format_ticker_list(gainers, "🔥 TOP GAINERS 24H")
-        await loading.edit_text(msg, parse_mode='Markdown')
+        keyboard = format_ticker_list_keyboard(gainers, 'gainer')
+        await loading.delete()
+        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
 
     elif selected_menu == "📉 Top Losers 24h":
         loading = await update.message.reply_text("⏳ Mengambil Top Losers...")
         losers = await get_top_losers(market_type)
         msg = format_ticker_list(losers, "📉 TOP LOSERS 24H")
-        await loading.edit_text(msg, parse_mode='Markdown')
+        keyboard = format_ticker_list_keyboard(losers, 'loser')
+        await loading.delete()
+        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
 
     elif selected_menu == "💎 Top Volume 24h":
         loading = await update.message.reply_text("⏳ Mengambil Top Volume...")
         volumes = await get_top_volume(market_type)
         msg = format_ticker_list(volumes, "💎 TOP VOLUME 24H")
-        await loading.edit_text(msg, parse_mode='Markdown')
+        keyboard = format_ticker_list_keyboard(volumes, 'volume')
+        await loading.delete()
+        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
 
     elif selected_menu == "✏️ Ketik Pair":
         context.user_data['waiting_pair'] = True
@@ -673,69 +723,30 @@ async def handle_menu_selection(update: Update, context: ContextTypes.DEFAULT_TY
     elif selected_menu == "≡ Menu":
         await start(update, context)
 
-async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler ketika user pilih pair atau menu"""
-    selected_text = update.message.text
-
-    # Cek menu
-    menu_buttons = [
-        "🔥 Top Gainers 24h", "📉 Top Losers 24h", "💎 Top Volume 24h",
-        "📊 All Pairs", "✏️ Ketik Pair", "🔄 Refresh Data", "≡ Menu"
-    ]
-    if selected_text in menu_buttons:
-        await handle_menu_selection(update, context)
-        return
-
-    # ----- /cancel handler -----
-    if selected_text.strip().lower() == '/cancel':
-        context.user_data.pop('waiting_pair', None)
-        await update.message.reply_text("❌ Dibatalkan.")
-        await start(update, context)
-        return
-
-    # ----- Auto-format manual input -----
-    # Kalau user ketik "btc", "BTC", "btc/usdt", "BTC/USDT" dll → normalize
-    typed = selected_text.strip()
-    if '/USDT' not in typed.upper():
-        # Tambahkan /USDT otomatis
-        typed = typed.upper() + '/USDT'
+async def process_pair_analysis(update_or_query, context, selected_pair, market_type, from_inline=False):
+    """Fungsi untuk proses analisa pair (bisa dipanggil dari inline keyboard atau text)"""
+    
+    # Tentukan apakah dari inline button atau text message
+    if from_inline:
+        # Dari inline keyboard (CallbackQuery)
+        message = update_or_query.message
+        user_id = update_or_query.from_user.id
     else:
-        typed = typed.upper()
-
-    selected_pair = typed
-    market_type   = context.user_data.get('market_type', 'futures')
-
-    # Kalau dari mode "waiting_pair", reset state-nya
-    if context.user_data.get('waiting_pair'):
-        context.user_data.pop('waiting_pair', None)
-
-    # Validasi pair dari cache
-    valid_pairs = get_all_pairs(market_type)
-    if selected_pair not in valid_pairs:
-        # Coba cari pair yang mirip (partial match)
-        suggestions = [p for p in valid_pairs if selected_pair.split('/')[0] in p][:5]
-        msg = f"❌ Pair *{selected_pair}* tidak ditemukan.\n\n"
-        if suggestions:
-            msg += "🔍 *Mungkin maksud:*\n"
-            for s in suggestions:
-                msg += f"• {s}\n"
-        else:
-            msg += "Coba ketik ulang nama pair yang benar."
-        await update.message.reply_text(msg, parse_mode='Markdown')
-        return
-
+        # Dari text message
+        message = update_or_query.message
+        user_id = update_or_query.message.from_user.id
+    
     # ----- Cooldown per user -----
-    user_id = update.message.from_user.id
     now = time.time()
     if user_id in USER_COOLDOWN and (now - USER_COOLDOWN[user_id]) < COOLDOWN_SECONDS:
         remaining = COOLDOWN_SECONDS - (now - USER_COOLDOWN[user_id])
-        await update.message.reply_text(f"⏳ Tunggu dulu ya, {remaining:.0f} detik lagi.")
+        await message.reply_text(f"⏳ Tunggu dulu ya, {remaining:.0f} detik lagi.")
         return
     USER_COOLDOWN[user_id] = now
 
     # Loading
     market_label = "SPOT" if market_type == 'spot' else "FUTURES"
-    loading_msg = await update.message.reply_text(
+    loading_msg = await message.reply_text(
         f"⏳ Menganalisa *{selected_pair}* ({market_label})...\n"
         f"Ambil data 15m + 5m + News + AI...\nTunggu sebentar! 🔍",
         parse_mode='Markdown'
@@ -776,10 +787,10 @@ async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 f"⏰ Dual Timeframe: 15m (Trend) + 5m (Entry)\n"
                 f"📐 Fibonacci + Bollinger Bands + MA"
             )
-            await update.message.reply_photo(photo=chart_file, caption=caption, parse_mode='Markdown')
+            await message.reply_photo(photo=chart_file, caption=caption, parse_mode='Markdown')
 
         # --- Kirim News ---
-        await update.message.reply_text(news_for_tg, parse_mode='Markdown')
+        await message.reply_text(news_for_tg, parse_mode='Markdown')
 
         # --- Kirim Data Teknikal Summary ---
         rsi_5m_status  = "Overbought 🔥" if ind_5m['rsi'] > 70 else ("Oversold 🧊" if ind_5m['rsi'] < 30 else "Normal ✅")
@@ -821,7 +832,7 @@ async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TY
             f"🔴 *Resistance:* ${ind_5m['resistance']:.4f}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
         )
-        await update.message.reply_text(summary, parse_mode='Markdown')
+        await message.reply_text(summary, parse_mode='Markdown')
 
         # --- Kirim AI Analisa ---
         ai_message = (
@@ -832,7 +843,7 @@ async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TY
             f"⚠️ *Disclaimer:* Ini BUKAN rekomendasi trading!\n"
             f"Analisa ini untuk edukasi saja. Selalu lakukan riset mandiri.\n"
         )
-        await update.message.reply_text(ai_message, parse_mode='Markdown')
+        await message.reply_text(ai_message, parse_mode='Markdown')
 
         # Hapus loading
         await loading_msg.delete()
@@ -851,6 +862,68 @@ async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TY
         # Selalu hapus chart file
         if chart_path and os.path.exists(chart_path):
             os.remove(chart_path)
+
+async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler ketika user pilih pair atau menu"""
+    selected_text = update.message.text
+
+    # Cek menu
+    menu_buttons = [
+        "🔥 Top Gainers 24h", "📉 Top Losers 24h", "💎 Top Volume 24h",
+        "📊 All Pairs", "✏️ Ketik Pair", "🔄 Refresh Data", "≡ Menu"
+    ]
+    if selected_text in menu_buttons:
+        await handle_menu_selection(update, context)
+        return
+
+    # ----- /cancel handler -----
+    if selected_text.strip().lower() == '/cancel':
+        context.user_data.pop('waiting_pair', None)
+        await update.message.reply_text("❌ Dibatalkan.")
+        await start(update, context)
+        return
+
+    # ----- Auto-format manual input -----
+    # Kalau user ketik "btc", "BTC", "btc/usdt", "BTC/USDT" dll → normalize
+    typed = selected_text.strip().upper()
+    market_type = context.user_data.get('market_type', 'futures')
+
+    # Untuk FUTURES, format: SOL/USDT:USDT
+    # Untuk SPOT, format: SOL/USDT
+    if market_type == 'futures':
+        if '/USDT:USDT' not in typed:
+            if '/USDT' in typed and ':USDT' not in typed:
+                typed = typed + ':USDT'
+            elif '/USDT' not in typed:
+                typed = typed + '/USDT:USDT'
+    else:
+        # Spot market
+        if '/USDT' not in typed:
+            typed = typed + '/USDT'
+
+    selected_pair = typed
+
+    # Kalau dari mode "waiting_pair", reset state-nya
+    if context.user_data.get('waiting_pair'):
+        context.user_data.pop('waiting_pair', None)
+
+    # Validasi pair dari cache
+    valid_pairs = get_all_pairs(market_type)
+    if selected_pair not in valid_pairs:
+        # Coba cari pair yang mirip (partial match)
+        suggestions = [p for p in valid_pairs if selected_pair.split('/')[0] in p][:5]
+        msg = f"❌ Pair *{selected_pair}* tidak ditemukan.\n\n"
+        if suggestions:
+            msg += "🔍 *Mungkin maksud:*\n"
+            for s in suggestions:
+                msg += f"• {s}\n"
+        else:
+            msg += "Coba ketik ulang nama pair yang benar."
+        await update.message.reply_text(msg, parse_mode='Markdown')
+        return
+
+    # Panggil fungsi proses analisa
+    await process_pair_analysis(update, context, selected_pair, market_type, from_inline=False)
 
 # ========== CANCEL HANDLER ==========
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
