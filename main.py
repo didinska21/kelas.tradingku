@@ -725,7 +725,7 @@ async def handle_pair_selection(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     # ----- Cooldown per user -----
-    user_id = update.message.user.id
+    user_id = update.message.from_user.id
     now = time.time()
     if user_id in USER_COOLDOWN and (now - USER_COOLDOWN[user_id]) < COOLDOWN_SECONDS:
         remaining = COOLDOWN_SECONDS - (now - USER_COOLDOWN[user_id])
