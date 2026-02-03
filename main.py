@@ -597,7 +597,10 @@ async def market_selection_handler(update: Update, context: ContextTypes.DEFAULT
         f"📊 *ALL {market_label} PAIRS*\nTotal: *{len(pairs)} pairs*\nScroll untuk lihat semua:",
         parse_mode='Markdown'
     )
-    await loading_message.edit_text(
+    # Hapus loading message dulu
+    await loading_message.delete()
+    # Kirim pesan baru dengan ReplyKeyboardMarkup (tidak bisa pakai edit_text)
+    await query.message.reply_text(
         f"✅ {len(pairs)} {market_label} pairs tersedia! Pilih pair di bawah 👇",
         reply_markup=reply_markup
     )
