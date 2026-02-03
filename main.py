@@ -542,23 +542,8 @@ async def get_top_volume(market_type='spot', top_n=15):
         print(f"Error top volume: {e}")
         return []
 
-def format_ticker_list_keyboard(ticker_list, prefix):
-    """Buat inline keyboard dari ticker list untuk langsung analisa"""
-    if not ticker_list:
-        return None
-    
-    keyboard = []
-    for i, (symbol, data) in enumerate(ticker_list[:15], 1):
-        pct = data.get('percentage', 0) or 0
-        price = data.get('last', 0) or 0
-        emoji = "🟢" if pct >= 0 else "🔴"
-        button_text = f"{emoji} {symbol.split('/')[0]} {pct:+.1f}%"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f'analyze_{symbol}')])
-    
-    return InlineKeyboardMarkup(keyboard)
-
 def format_ticker_list(ticker_list, label):
-    """Format list ticker untuk Telegram (text only)"""
+    """Format list ticker untuk Telegram (text only) - untuk info saja"""
     if not ticker_list:
         return f"⚠️ Gagal mengambil data {label}."
     msg = f"*{label}*\n━━━━━━━━━━━━━━━━━━\n"
@@ -567,7 +552,6 @@ def format_ticker_list(ticker_list, label):
         price = data.get('last', 0) or 0
         emoji = "🟢" if pct >= 0 else "🔴"
         msg += f"{i:2d}. {emoji} *{symbol}* — ${price:.4f} ({pct:+.2f}%)\n"
-    msg += f"\n💡 *Klik coin di bawah untuk analisa langsung!*"
     return msg
 
 # ========== HANDLER TELEGRAM ==========
@@ -601,18 +585,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def market_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler pilihan Spot atau Futures dan analyze callback"""
+    """Handler pilihan Spot atau Futures"""
     query = update.callback_query
     await query.answer()
-
-    # Handle analyze_ callback (dari inline keyboard top gainers/losers/volume)
-    if query.data.startswith('analyze_'):
-        selected_pair = query.data.replace('analyze_', '')
-        market_type = context.user_data.get('market_type', 'futures')
-        
-        # Proses analisa langsung (copy logic dari handle_pair_selection)
-        await process_pair_analysis(query, context, selected_pair, market_type, from_inline=True)
-        return
 
     # Handle market selection (spot/futures)
     market_type = query.data.split('_')[1]
@@ -668,26 +643,97 @@ async def handle_menu_selection(update: Update, context: ContextTypes.DEFAULT_TY
     elif selected_menu == "🔥 Top Gainers 24h":
         loading = await update.message.reply_text("⏳ Mengambil Top Gainers...")
         gainers = await get_top_gainers(market_type)
-        msg = format_ticker_list(gainers, "🔥 TOP GAINERS 24H")
-        keyboard = format_ticker_list_keyboard(gainers, 'gainer')
+        
+        # Buat keyboard biasa (seperti All Pairs)
+        keyboard = []
+        row = []
+        for i, (symbol, data) in enumerate(gainers[:15], 1):
+            pct = data.get('percentage', 0) or 0
+            emoji = "🟢"
+            button_text = f"{emoji} {symbol.split('/')[0]} {pct:+.1f}%"
+            row.append(KeyboardButton(symbol))  # Button isinya symbol asli
+            if (i) % 2 == 0:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        keyboard.append([KeyboardButton("≡ Menu")])
+        
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        market_label = "SPOT" if market_type == 'spot' else "FUTURES"
+        
         await loading.delete()
-        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+        await update.message.reply_text(
+            f"🔥 *TOP GAINERS 24H*\n"
+            f"🏷️ Market: {market_label}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Pilih coin untuk analisa 👇",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
 
     elif selected_menu == "📉 Top Losers 24h":
         loading = await update.message.reply_text("⏳ Mengambil Top Losers...")
         losers = await get_top_losers(market_type)
-        msg = format_ticker_list(losers, "📉 TOP LOSERS 24H")
-        keyboard = format_ticker_list_keyboard(losers, 'loser')
+        
+        # Buat keyboard biasa (seperti All Pairs)
+        keyboard = []
+        row = []
+        for i, (symbol, data) in enumerate(losers[:15], 1):
+            pct = data.get('percentage', 0) or 0
+            emoji = "🔴"
+            button_text = f"{emoji} {symbol.split('/')[0]} {pct:+.1f}%"
+            row.append(KeyboardButton(symbol))  # Button isinya symbol asli
+            if (i) % 2 == 0:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        keyboard.append([KeyboardButton("≡ Menu")])
+        
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        market_label = "SPOT" if market_type == 'spot' else "FUTURES"
+        
         await loading.delete()
-        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+        await update.message.reply_text(
+            f"📉 *TOP LOSERS 24H*\n"
+            f"🏷️ Market: {market_label}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Pilih coin untuk analisa 👇",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
 
     elif selected_menu == "💎 Top Volume 24h":
         loading = await update.message.reply_text("⏳ Mengambil Top Volume...")
         volumes = await get_top_volume(market_type)
-        msg = format_ticker_list(volumes, "💎 TOP VOLUME 24H")
-        keyboard = format_ticker_list_keyboard(volumes, 'volume')
+        
+        # Buat keyboard biasa (seperti All Pairs)
+        keyboard = []
+        row = []
+        for i, (symbol, data) in enumerate(volumes[:15], 1):
+            volume = data.get('quoteVolume', 0) or 0
+            emoji = "💎"
+            row.append(KeyboardButton(symbol))  # Button isinya symbol asli
+            if (i) % 2 == 0:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        keyboard.append([KeyboardButton("≡ Menu")])
+        
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        market_label = "SPOT" if market_type == 'spot' else "FUTURES"
+        
         await loading.delete()
-        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+        await update.message.reply_text(
+            f"💎 *TOP VOLUME 24H*\n"
+            f"🏷️ Market: {market_label}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Pilih coin untuk analisa 👇",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
 
     elif selected_menu == "✏️ Ketik Pair":
         context.user_data['waiting_pair'] = True
